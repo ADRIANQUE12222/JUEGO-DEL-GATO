@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Juego de Gato Online</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+        }
+        .cell {
+            width: 100%;
+            height: 100%;
+            aspect-ratio: 1 / 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 4rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.2s ease-in-out;
+        }
+        .cell:hover:not(:empty) {
+             cursor: not-allowed;
+        }
+        .cell:hover:empty {
+            background-color: #374151; /* gray-700 */
+        }
+        .x-color {
+            color: #60a5fa; /* blue-400 */
+        }
+        .o-color {
+            color: #facc15; /* yellow-400 */
+        }
+        .title-animation {
+            animation: fadeInDown 1s ease-out;
+        }
+        @keyframes fadeInDown {
+            0% { opacity: 0; transform: translateY(-20px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+        .cell-animation {
+            animation: popIn 0.3s ease-in-out;
+        }
+        @keyframes popIn {
+            0% { transform: scale(0.5); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-md mx-auto bg-gray-800 rounded-2xl shadow-2xl p-6 md:p-8">
+        
+        <h1 class="text-4xl md:text-5xl font-bold text-center mb-4 title-animation">Gato Online</h1>
+        
+        <!-- Sección para Unirse o Crear Juego -->
+        <div id="game-setup">
+            <p class="text-center text-gray-400 mb-2">Tu ID de Jugador:</p>
+            <p id="userId" class="text-center text-sm text-indigo-400 mb-4 break-all">-</p>
+            
+            <div class="mb-4">
+                <input type="text" id="gameIdInput" placeholder="Pega el ID de la partida" class="w-full bg-gray-700 text-white p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            <button id="joinGameBtn" class="w-full mb-2 bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg text-lg transition-transform transform hover:scale-105">
+                Unirse al Juego
+            </button>
+            <p class="text-center text-gray-500 my-2">ó</p>
+            <button id="createGameBtn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg text-lg transition-transform transform hover:scale-105">
+                Crear Nuevo Juego
+            </button>
+        </div>
+
+        <!-- Sección del Juego -->
+        <div id="game-container" class="hidden">
+            <p class="text-center text-gray-400 mb-1">ID de la Partida:</p>
+            <p id="gameIdDisplay" class="text-center text-lg font-semibold text-yellow-400 mb-4 cursor-pointer" title="Click to copy Game ID"></p>
+            <p id="status" class="text-lg text-center text-gray-400 mb-6 h-7 transition-opacity duration-300"></p>
+            <div id="board" class="grid grid-cols-3 gap-3 bg-gray-900 p-3 rounded-xl">
+                <!-- Las celdas se generan con JavaScript -->
+            </div>
+            <button id="restartButton" class="w-full mt-6 bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg text-lg transition-transform transform hover:scale-105">
+                Reiniciar Juego
+            </button>
+        </div>
+    </div>
+
+    <!-- Módulo de Firebase -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, onSnapshot, updateDoc, collection } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAiidXfHAhqcGNutK_gsaiJcCSpPWf0Wd0",
+            authDomain: "juego-gato-online-8c878.firebaseapp.com",
+            projectId: "juego-gato-online-8c878",
+            storageBucket: "juego-gato-online-8c878.firebasestorage.app",
+            messagingSenderId: "940761983818",
+            appId: "1:940761983818:web:ba80e8339a532656a2afb3"
+        };
+
+        // Inicialización de Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // Elementos del DOM
+        const userIdDisplay = document.getElementById('userId');
+        const gameSetupDiv = document.getElementById('game-setup');
+        const gameContainerDiv = document.getElementById('game-container');
+        const createGameBtn = document.getElementById('createGameBtn');
+        const joinGameBtn = document.getElementById('joinGameBtn');
+        const gameIdInput = document.getElementById('gameIdInput');
+        const gameIdDisplay = document.getElementById('gameIdDisplay');
+        const board = document.getElementById('board');
+        const statusDisplay = document.getElementById('status');
+        const restartButton = document.getElementById('restartButton');
+
+        let currentGameId = null;
+        let unsubscribe = null; // Para la escucha de onSnapshot
+        let localPlayerSymbol = null;
+
+        // Autenticación anónima
+        onAuthStateChanged(auth, user => {
+            if (user) {
+                userIdDisplay.textContent = user.uid;
+            } else {
+                signInAnonymously(auth).catch(error => {
+                    console.error("Error signing in anonymously", error);
+                });
+            }
+        });
+
+        // Crear el tablero visualmente
+        for(let i=0; i<9; i++) {
+            const cell = document.createElement('div');
+            cell.classList.add('cell', 'bg-gray-800', 'rounded-lg');
+            cell.setAttribute('data-cell-index', i);
+            cell.addEventListener('click', handleCellClick);
+            board.appendChild(cell);
+        }
+        
+        function copyGameIdToClipboard() {
+            if (!currentGameId) return;
+
+            const textArea = document.createElement("textarea");
+            textArea.value = currentGameId;
+            
+            textArea.style.position = "fixed";
+            textArea.style.top = "0";
+            textArea.style.left = "0";
+            textArea.style.opacity = "0";
+
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+
+            try {
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    alert('ID de la partida copiado al portapapeles');
+                } else {
+                    alert('No se pudo copiar el ID. Cópialo manualmente.');
+                }
+            } catch (err) {
+                console.error('No se pudo copiar el ID', err);
+                alert('No se pudo copiar el ID. Cópialo manualmente.');
+            }
+
+            document.body.removeChild(textArea);
+        }
+
+        // Manejadores de eventos
+        createGameBtn.addEventListener('click', createGame);
+        joinGameBtn.addEventListener('click', joinGame);
+        restartButton.addEventListener('click', handleRestartGame);
+        gameIdDisplay.addEventListener('click', copyGameIdToClipboard);
+
+        async function createGame() {
+            if (!auth.currentUser) return alert('Por favor, espera a que se complete la autenticación.');
+            
+            const gamesCollection = collection(db, 'games');
+            const newGameRef = doc(gamesCollection);
+            const newGameId = newGameRef.id;
+
+            const initialGameState = {
+                board: Array(9).fill(""),
+                currentPlayer: 'X',
+                players: { 'X': auth.currentUser.uid, 'O': null },
+                gameActive: true,
+                winner: null,
+                isDraw: false
+            };
+
+            await setDoc(newGameRef, initialGameState);
+            currentGameId = newGameId;
+            localPlayerSymbol = 'X';
+            startGameListener();
+        }
+
+        async function joinGame() {
+            if (!auth.currentUser) return alert('Por favor, espera a que se complete la autenticación.');
+            const gameId = gameIdInput.value.trim();
+            if (!gameId) return alert('Por favor, introduce un ID de partida.');
+
+            const gameRef = doc(db, 'games', gameId);
+            const gameSnap = await getDoc(gameRef);
+
+            if (!gameSnap.exists()) {
+                return alert('Partida no encontrada.');
+            }
+
+            const gameData = gameSnap.data();
+            if (gameData.players.O && gameData.players.O !== auth.currentUser.uid) {
+                return alert('Esta partida ya está llena.');
+            }
+            
+            if (gameData.players.X !== auth.currentUser.uid) {
+                await updateDoc(gameRef, { 'players.O': auth.currentUser.uid });
+                localPlayerSymbol = 'O';
+            } else {
+                 localPlayerSymbol = 'X';
+            }
+
+            currentGameId = gameId;
+            startGameListener();
+        }
+
+        function startGameListener() {
+            if (unsubscribe) unsubscribe(); // Detener escucha anterior si existe
+
+            gameSetupDiv.classList.add('hidden');
+            gameContainerDiv.classList.remove('hidden');
+            gameIdDisplay.textContent = currentGameId;
+
+            const gameRef = doc(db, 'games', currentGameId);
+            unsubscribe = onSnapshot(gameRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    updateUI(docSnap.data());
+                } else {
+                    alert('La partida ha sido eliminada.');
+                    resetToLobby();
+                }
+            });
+        }
+        
+        function updateUI(gameData) {
+            // Actualizar tablero
+            gameData.board.forEach((cellValue, index) => {
+                const cell = board.children[index];
+                if (cell.textContent !== cellValue) {
+                    cell.textContent = cellValue;
+                    cell.classList.remove('x-color', 'o-color');
+                    if(cellValue) {
+                        cell.classList.add(cellValue === 'X' ? 'x-color' : 'o-color', 'cell-animation');
+                    }
+                }
+            });
+
+            // Actualizar estado
+            if (!gameData.gameActive) {
+                if (gameData.winner) {
+                    statusDisplay.textContent = `¡El jugador ${gameData.winner} ha ganado!`;
+                } else if (gameData.isDraw) {
+                    statusDisplay.textContent = '¡El juego ha terminado en empate!';
+                }
+            } else {
+                 if (!gameData.players.O) {
+                    statusDisplay.textContent = 'Esperando al jugador O...';
+                } else {
+                    if (gameData.currentPlayer === localPlayerSymbol) {
+                        statusDisplay.textContent = '¡Es tu turno!';
+                    } else {
+                        statusDisplay.textContent = `Esperando el turno de ${gameData.currentPlayer}...`;
+                    }
+                }
+            }
+        }
+
+        async function handleCellClick(event) {
+            const cellIndex = parseInt(event.target.getAttribute('data-cell-index'));
+            const gameRef = doc(db, 'games', currentGameId);
+            const gameSnap = await getDoc(gameRef);
+
+            if (!gameSnap.exists()) return;
+            const gameData = gameSnap.data();
+            
+            if (!gameData.gameActive || 
+                gameData.board[cellIndex] !== "" ||
+                gameData.currentPlayer !== localPlayerSymbol ||
+                !gameData.players.O) {
+                return;
+            }
+
+            const newBoard = [...gameData.board];
+            newBoard[cellIndex] = gameData.currentPlayer;
+
+            const { winner, isDraw } = checkWinner(newBoard);
+            
+            const nextPlayer = gameData.currentPlayer === 'X' ? 'O' : 'X';
+
+            await updateDoc(gameRef, {
+                board: newBoard,
+                currentPlayer: nextPlayer,
+                gameActive: !winner && !isDraw,
+                winner: winner,
+                isDraw: isDraw
+            });
+        }
+
+        function checkWinner(board) {
+            const winningConditions = [
+                [0, 1, 2], [3, 4, 5], [6, 7, 8],
+                [0, 3, 6], [1, 4, 7], [2, 5, 8],
+                [0, 4, 8], [2, 4, 6]
+            ];
+            let winner = null;
+            for (const condition of winningConditions) {
+                const [a, b, c] = condition;
+                if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+                    winner = board[a];
+                    break;
+                }
+            }
+            const isDraw = !winner && !board.includes("");
+            return { winner, isDraw };
+        }
+
+        async function handleRestartGame() {
+            if (!currentGameId) return;
+            const gameRef = doc(db, 'games', currentGameId);
+            await updateDoc(gameRef, {
+                board: Array(9).fill(""),
+                currentPlayer: 'X',
+                gameActive: true,
+                winner: null,
+                isDraw: false
+            });
+        }
+        
+        function resetToLobby() {
+            if (unsubscribe) unsubscribe();
+            gameSetupDiv.classList.remove('hidden');
+            gameContainerDiv.classList.add('hidden');
+            gameIdInput.value = "";
+            currentGameId = null;
+            localPlayerSymbol = null;
+        }
+
+    </script>
+</body>
+</html>
