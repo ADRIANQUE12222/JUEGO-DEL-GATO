@@ -193,11 +193,22 @@
         async function createGame() {
             if (!auth.currentUser) return alert('Por favor, espera a que se complete la autenticación.');
             
-            const startingPlayer = Math.random() < 0.5 ? 'X' : 'O';
-            const gamesCollection = collection(db, 'games');
-            const newGameRef = doc(gamesCollection);
-            const newGameId = newGameRef.id;
+            let newGameId = '';
+            let isIdUnique = false;
+            let gameRef;
 
+            // Bucle para encontrar un ID numérico corto y único de 6 dígitos
+            while (!isIdUnique) {
+                const candidateId = Math.floor(100000 + Math.random() * 900000).toString();
+                gameRef = doc(db, 'games', candidateId);
+                const docSnap = await getDoc(gameRef);
+                if (!docSnap.exists()) {
+                    newGameId = candidateId;
+                    isIdUnique = true;
+                }
+            }
+            
+            const startingPlayer = Math.random() < 0.5 ? 'X' : 'O';
             const initialGameState = {
                 board: Array(9).fill(""),
                 currentPlayer: startingPlayer,
@@ -208,7 +219,7 @@
                 winningLine: null
             };
 
-            await setDoc(newGameRef, initialGameState);
+            await setDoc(gameRef, initialGameState);
             currentGameId = newGameId;
             localPlayerSymbol = 'X';
             startGameListener();
@@ -411,4 +422,5 @@
     </script>
 </body>
 </html>
+
 
